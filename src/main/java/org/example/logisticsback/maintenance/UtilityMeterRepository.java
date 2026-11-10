@@ -34,6 +34,10 @@ public class UtilityMeterRepository {
                 rs.getDate("next_read_due_date").toLocalDate(), rs.getString("status"),
                 rs.getBigDecimal("multiplier"), rs.getString("owner"), rs.getString("lifecycle_status"),
                 rs.getInt("version"),rs.getInt("cycle_days"),rs.getBigDecimal("initial_reading"),
-                rs.getLong("reading_count"),rs.getBigDecimal("consumption"));
+                rs.getLong("reading_count"),rs.getBigDecimal("consumption"),
+                rs.getString("area"), rs.getString("model"),
+                rs.getObject("install_date", LocalDate.class),
+                rs.getObject("last_inspection_date", LocalDate.class),
+                rs.getObject("next_inspection_date", LocalDate.class));
     }
 }

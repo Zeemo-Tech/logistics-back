@@ -32,10 +32,14 @@ public class AssetController {
             @RequestParam(required = false) String kind,
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) String category,
+            @RequestParam(required = false) String departmentId,
+            @RequestParam(required = false) String categoryId,
+            @RequestParam(required = false) String subcategory,
             @RequestParam(required = false) String lifecycleStatus,
-            @RequestParam(required = false) String availabilityStatus) {
-        return ApiResponse.ok(service.list(new AssetQuery(kind, keyword, category,
-                lifecycleStatus, availabilityStatus)));
+            @RequestParam(required = false) String availabilityStatus,
+            @RequestParam(required = false) String warningLevel) {
+        return ApiResponse.ok(service.list(new AssetQuery(kind, keyword, category, departmentId, categoryId,
+                subcategory, lifecycleStatus, availabilityStatus, warningLevel)));
     }
 
     @GetMapping("/overview")
@@ -50,10 +54,14 @@ public class AssetController {
             @RequestParam(defaultValue = "10") int pageSize,
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) String category,
+            @RequestParam(required = false) String departmentId,
+            @RequestParam(required = false) String categoryId,
+            @RequestParam(required = false) String subcategory,
             @RequestParam(required = false) String lifecycleStatus,
-            @RequestParam(required = false) String availabilityStatus) {
-        return ApiResponse.ok(service.ledger(new AssetQuery(kind, keyword, category,
-                lifecycleStatus, availabilityStatus), page, pageSize));
+            @RequestParam(required = false) String availabilityStatus,
+            @RequestParam(required = false) String warningLevel) {
+        return ApiResponse.ok(service.ledger(new AssetQuery(kind, keyword, category, departmentId, categoryId,
+                subcategory, lifecycleStatus, availabilityStatus, warningLevel), page, pageSize));
     }
 
     @GetMapping("/binding-options")
@@ -104,11 +112,15 @@ public class AssetController {
             @RequestParam(required = false) String kind,
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) String category,
+            @RequestParam(required = false) String departmentId,
+            @RequestParam(required = false) String categoryId,
+            @RequestParam(required = false) String subcategory,
             @RequestParam(required = false) String lifecycleStatus,
-            @RequestParam(required = false) String availabilityStatus) {
+            @RequestParam(required = false) String availabilityStatus,
+            @RequestParam(required = false) String warningLevel) {
         var exportFormat = ExportFormat.parse(format);
-        var table = service.export(new AssetQuery(kind, keyword, category,
-                lifecycleStatus, availabilityStatus));
+        var table = service.export(new AssetQuery(kind, keyword, category, departmentId, categoryId,
+                subcategory, lifecycleStatus, availabilityStatus, warningLevel));
         return ExportResponse.file(ExportWriter.write(table, exportFormat), exportFormat, "资产台账");
     }
 

@@ -17,4 +17,5 @@ public record UtilityMeter(
         LocalDate nextReadDueDate,
         String status, BigDecimal multiplier, String owner, String lifecycleStatus,
         int version, int cycleDays, BigDecimal initialReading, long readingCount,
-        BigDecimal consumption) {}
+        BigDecimal consumption, String area, String model, LocalDate installDate,
+        LocalDate lastInspectionDate, LocalDate nextInspectionDate) {}

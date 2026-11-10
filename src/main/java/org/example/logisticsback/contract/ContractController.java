@@ -1,12 +1,17 @@
 package org.example.logisticsback.contract;
 
+import jakarta.validation.Valid;
 import java.util.List;
 import org.example.logisticsback.common.ApiResponse;
 import org.example.logisticsback.export.ExportFormat;
 import org.example.logisticsback.export.ExportResponse;
 import org.example.logisticsback.export.ExportWriter;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -45,5 +50,22 @@ public class ContractController {
     @GetMapping("/{contractId}")
     public ApiResponse<ContractRecord> detail(@PathVariable String contractId) {
         return ApiResponse.ok(service.get(contractId));
+    }
+
+    @PostMapping
+    public ApiResponse<ContractRecord> create(@Valid @RequestBody ContractRequest input) {
+        return ApiResponse.ok(service.create(input), "合同已创建");
+    }
+
+    @PutMapping("/{contractId}")
+    public ApiResponse<ContractRecord> update(@PathVariable String contractId,
+                                              @Valid @RequestBody ContractRequest input) {
+        return ApiResponse.ok(service.update(contractId, input), "合同已更新");
+    }
+
+    @DeleteMapping("/{contractId}")
+    public ApiResponse<Void> delete(@PathVariable String contractId) {
+        service.delete(contractId);
+        return ApiResponse.ok(null, "合同已删除");
     }
 }

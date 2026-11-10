@@ -32,7 +32,13 @@ public class AssetService {
             Map.entry("ACTIVE", "在册"), Map.entry("INACTIVE", "停用"), Map.entry("RETIRED", "退役"),
             Map.entry("AVAILABLE", "可用"), Map.entry("IN_USE", "使用中"),
             Map.entry("MAINTENANCE", "检修中"), Map.entry("UNAVAILABLE", "不可用"),
-            Map.entry("ONLINE", "在线"), Map.entry("OFFLINE", "离线"), Map.entry("ALERT", "异常"));
+            Map.entry("ONLINE", "在线"), Map.entry("OFFLINE", "离线"), Map.entry("ALERT", "异常"),
+            Map.entry("RUNNING", "正常运行"), Map.entry("ABNORMAL", "运行异常"),
+            Map.entry("FAULT", "故障停用"), Map.entry("REPAIRING", "维修中"),
+            Map.entry("SUSPENDED", "停用"),
+            Map.entry("OVERDUE", "已逾期"), Map.entry("DUE_TODAY", "今日到期"),
+            Map.entry("CRITICAL", "临近到期"), Map.entry("DUE_SOON", "即将到期"),
+            Map.entry("NORMAL", "正常"), Map.entry("NONE", "无"));
 
     private final AssetRepository repository;
     private final WorkOrderRepository workOrders;
@@ -142,7 +148,10 @@ public class AssetService {
                 "园区", "位置", "负责人", "生命周期", "使用状态", "设备状态", "关联资产编号",
                 "设计容量", "已占用", "容量单位", "温度下限", "温度上限", "剩余电量",
                 "核载吨数", "保险到期日", "最后上报", "备注", "设备子类", "生产厂家", "规格型号",
-                "出厂编号", "投用日期", "维保单位", "维护周期", "质保到期", "下次维保", "下次检验");
+                "出厂编号", "投用日期", "维保单位", "维护周期", "质保到期", "下次维保", "下次检验",
+                "责任部门", "三级分类", "运行状态", "预警等级", "最近到期日", "预警来源",
+                "采购日期", "安装日期", "使用年限", "预计报废", "维保合同到期", "责任人",
+                "维保联系人", "维保电话", "所属仓库", "楼栋", "楼层", "上次维保", "最近检验", "规格");
         var rows = new ArrayList<List<String>>();
         for (var asset : repository.search(query)) {
             rows.add(List.of(
@@ -156,9 +165,18 @@ public class AssetService {
                     value(asset.notes()), value(asset.subcategory()), value(asset.manufacturer()),
                     value(asset.equipmentModel()), value(asset.serialNumber()), value(asset.commissionedDate()),
                     value(asset.serviceProvider()), value(asset.maintenanceCycle()), value(asset.warrantyExpiry()),
-                    value(asset.maintenanceDueDate()), value(asset.inspectionDueDate())));
+                    value(asset.maintenanceDueDate()), value(asset.inspectionDueDate()),
+                    value(asset.departmentName()),
+                    value(asset.categoryGroupName()) + (asset.categoryName() == null ? "" : " / " + asset.categoryName()),
+                    label(asset.runStatus()), label(asset.warningLevel()), value(asset.warningDate()),
+                    value(asset.warningSource()), value(asset.purchaseDate()), value(asset.installDate()),
+                    value(asset.serviceLifeYears()), value(asset.expectedRetirementDate()),
+                    value(asset.maintenanceContractExpiry()), value(asset.responsiblePerson()),
+                    value(asset.maintenanceContact()), value(asset.maintenancePhone()),
+                    value(asset.warehouse()), value(asset.building()), value(asset.floor()),
+                    value(asset.lastMaintenanceDate()), value(asset.lastInspectionDate()), value(asset.specification())));
         }
-        return new ExportTable("资产台账", headers, rows);
+        return new ExportTable("设备台账", headers, rows);
     }
 
     private void validate(AssetUpsertRequest request, String currentId) {
@@ -170,6 +188,46 @@ public class AssetService {
                 || "ACTIVE".equals(request.lifecycleStatus()), "非在册资产不能处于使用中");
         if(request.commissionedDate()!=null) require(!request.commissionedDate().isAfter(java.time.LocalDate.now()),"投用日期不能晚于今天");
         if(request.warrantyExpiry()!=null && request.commissionedDate()!=null) require(!request.warrantyExpiry().isBefore(request.commissionedDate()),"质保到期不能早于投用日期");
+        if (request.departmentId() != null && !request.departmentId().isBlank()) {
+            require(repository.departmentExists(request.departmentId()), "责任部门不存在");
+        }
+        if (request.categoryId() != null && !request.categoryId().isBlank()) {
+            require(repository.categoryExists(request.categoryId()), "设备分类不存在");
+        }
+        if (currentId == null && ("FACILITY".equals(request.kind()) || "DEVICE".equals(request.kind()))) {
+            require(request.categoryId() != null && !request.categoryId().isBlank(), "请选择设备分类");
+        }
+        if (("FACILITY".equals(request.kind()) || "DEVICE".equals(request.kind()))
+                && request.categoryId() != null && !request.categoryId().isBlank()) {
+            require(!repository.categoryHasChildren(request.categoryId()),
+                    "请选择最末级设备分类后再新增设备");
+        }
+        if (request.warningDays() != null) {
+            require(request.warningDays() >= 1 && request.warningDays() <= 365, "预警天数需在 1 到 365 之间");
+        }
+        if (request.criticalWarningDays() != null) {
+            require(request.criticalWarningDays() >= 1 && request.criticalWarningDays() <= 365,
+                    "严重预警天数需在 1 到 365 之间");
+        }
+        if (request.warningDays() != null && request.criticalWarningDays() != null) {
+            require(request.criticalWarningDays() <= request.warningDays(), "严重预警天数不能大于普通预警天数");
+        }
+        if (request.serviceLifeYears() != null) {
+            require(request.serviceLifeYears() >= 0 && request.serviceLifeYears() <= 100, "使用年限需在 0 到 100 年之间");
+        }
+        if (request.purchaseDate() != null && request.installDate() != null) {
+            require(!request.installDate().isBefore(request.purchaseDate()), "安装日期不能早于采购日期");
+        }
+        if (request.installDate() != null && request.commissionedDate() != null) {
+            require(!request.commissionedDate().isBefore(request.installDate()), "投用日期不能早于安装日期");
+        }
+        if (request.expectedRetirementDate() != null && request.commissionedDate() != null) {
+            require(!request.expectedRetirementDate().isBefore(request.commissionedDate()), "预计报废日期不能早于投用日期");
+        }
+        if (request.maintenanceContractExpiry() != null && request.maintenanceContractExpiry().isBefore(
+                java.time.LocalDate.now().minusYears(50))) {
+            throw new BusinessException(400, "维保合同到期日期不合法");
+        }
         nonNegative(request.capacityTotal(), "设计容量");
         nonNegative(request.capacityUsed(), "已占用容量");
         nonNegative(request.ratedLoadTons(), "核载吨数");

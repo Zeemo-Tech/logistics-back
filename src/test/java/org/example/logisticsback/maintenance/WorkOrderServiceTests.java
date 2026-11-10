@@ -2,6 +2,7 @@ package org.example.logisticsback.maintenance;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import org.example.logisticsback.assets.AssetService;
 import org.example.logisticsback.assets.AssetUpsertRequest;
@@ -59,12 +60,14 @@ class WorkOrderServiceTests {
         var pending = order;
         assertThrows(BusinessException.class, () -> act(pending, "ACCEPT", null, "通过", null));
         order = act(order, "REJECT", null, "仍存在异响", null);
+        assertEquals("ACCEPTANCE_REJECTED", order.status());
+        order = act(order, "RESTART", null, null, null);
         assertEquals("IN_PROGRESS", order.status());
         assertEquals("MAINTENANCE", assets.get(order.assetId()).availabilityStatus());
         order = act(order, "SUBMIT", null, "返修完成", null);
         order = act(order, "ACCEPT", null, "复验通过", "AVAILABLE");
         assertEquals("AVAILABLE", assets.get(order.assetId()).availabilityStatus());
-        assertEquals(7, service.events(order.id()).size());
+        assertEquals(8, service.events(order.id()).size());
     }
 
     @Test
@@ -97,6 +100,11 @@ class WorkOrderServiceTests {
     }
 
     private WorkOrder act(WorkOrder order, String action, String assignee, String notes, String resolution) {
+        if ("START".equals(action)) {
+            return service.act(order.id(), new WorkOrderRequests.Action(action, order.version(), assignee,
+                    notes, resolution, null, null, null, null, null, null, null,
+                    LocalDateTime.now(), "测试维修员", null, null), 1L);
+        }
         return service.act(order.id(), new WorkOrderRequests.Action(action, order.version(), assignee, notes, resolution), 1L);
     }
 

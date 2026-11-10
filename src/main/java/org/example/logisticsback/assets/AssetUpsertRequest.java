@@ -37,7 +37,27 @@ public record AssetUpsertRequest(
         @Size(max = 64) String subcategory,
         LocalDate warrantyExpiry,
         LocalDate maintenanceDueDate,
-        LocalDate inspectionDueDate) {
+        LocalDate inspectionDueDate,
+        String departmentId,
+        String categoryId,
+        LocalDate purchaseDate,
+        LocalDate installDate,
+        Integer serviceLifeYears,
+        LocalDate expectedRetirementDate,
+        LocalDate maintenanceContractExpiry,
+        String runStatus,
+        Integer warningDays,
+        Integer criticalWarningDays,
+        @Size(max = 80) String responsiblePerson,
+        @Size(max = 80) String maintenanceContact,
+        @Size(max = 32) String maintenancePhone,
+        @Size(max = 120) String warehouse,
+        @Size(max = 120) String building,
+        @Size(max = 64) String floor,
+        LocalDate lastMaintenanceDate,
+        LocalDate lastInspectionDate,
+        @Size(max = 160) String specification) {
+
     public AssetUpsertRequest(String kind, String name, String category, String ownership, String ownerName,
             String site, String location, String custodian, String lifecycleStatus, String availabilityStatus,
             String conditionStatus, String linkedAssetId, BigDecimal capacityTotal, BigDecimal capacityUsed,
@@ -45,6 +65,7 @@ public record AssetUpsertRequest(
             BigDecimal ratedLoadTons, LocalDate insuranceExpiry, String lastSeen, String notes) {
         this(kind,name,category,ownership,ownerName,site,location,custodian,lifecycleStatus,availabilityStatus,
             conditionStatus,linkedAssetId,capacityTotal,capacityUsed,capacityUnit,temperatureMin,temperatureMax,
-            batteryPercent,ratedLoadTons,insuranceExpiry,lastSeen,notes,null,null,null,null,null,null,null,null,null,null);
+            batteryPercent,ratedLoadTons,insuranceExpiry,lastSeen,notes,null,null,null,null,null,null,null,null,null,null,
+            null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null);
     }
 }

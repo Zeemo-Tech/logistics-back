@@ -43,7 +43,7 @@ class AssetReadModelTests {
     @Test
     void overviewPreservesLifecycleRulesAndBoundsAttentionList() {
         // Isolate the attention assertion from seed dates and the current calendar date.
-        jdbc.update("update assets set maintenance_due_date = null, inspection_due_date = null");
+        jdbc.update("update assets set maintenance_due_date = null, inspection_due_date = null, warranty_expiry = null, maintenance_contract_expiry = null, expected_retirement_date = null");
         jdbc.update("update assets set maintenance_due_date = ? where id = 'FAC-BC-002'",
                 java.time.LocalDate.now().minusDays(1));
         var baseline = service.overview().metrics();
@@ -86,7 +86,7 @@ class AssetReadModelTests {
 
     @Test
     void attentionIncludesTodayOverdueAndThirtyDayBoundaryButExcludesFutureAndInactive() {
-        jdbc.update("update assets set maintenance_due_date = null, inspection_due_date = null");
+        jdbc.update("update assets set maintenance_due_date = null, inspection_due_date = null, warranty_expiry = null, maintenance_contract_expiry = null, expected_retirement_date = null");
         var today = java.time.LocalDate.now();
         jdbc.update("update assets set maintenance_due_date = ? where id = 'FAC-BC-002'", today.plusDays(60));
         jdbc.update("update assets set inspection_due_date = ? where id = 'FAC-BC-002'", today.minusDays(1));

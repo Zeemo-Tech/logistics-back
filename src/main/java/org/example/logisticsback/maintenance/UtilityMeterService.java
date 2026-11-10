@@ -20,9 +20,22 @@ public class UtilityMeterService {
     private UtilityMeter lock(String id) { var m=get(id); db.equipment(m.assetId(),false); db.jdbc.queryForList("select id from utility_meters where id=? for update",id); return get(id); }
     public List<Reading> readings(String id) { get(id); return db.jdbc.query("select * from utility_meter_readings where meter_id=? order by sequence_id desc",DataClassRowMapper.newInstance(Reading.class),id); }
     public List<Audit> history(String id) { get(id); return db.history("METER",id); }
+    public ReadingPhoto readingPhoto(String meterId, String readingId) {
+        get(meterId);
+        var photo = db.jdbc.query("""
+                select photo_name, photo_mime, photo_base64 from utility_meter_readings
+                where id = ? and meter_id = ?
+                """, rs -> rs.next() ? new ReadingPhoto(rs.getString("photo_name"),
+                rs.getString("photo_mime"), rs.getString("photo_base64")) : null, readingId, meterId);
+        if (photo == null) throw new BusinessException(404, "抄表照片不存在");
+        return photo;
+    }
     @Transactional
     public UtilityMeter save(String id,MeterInput input,Long operator) {
         require(Set.of("水表","电表").contains(input.kind()),"表计类型不合法");
+        if(input.nextInspectionDate()!=null && input.lastInspectionDate()!=null) {
+            require(input.nextInspectionDate().isAfter(input.lastInspectionDate()),"下次检定日期必须晚于最近检定日期");
+        }
         var a=db.equipment(input.assetId(),true);
         require(input.kind().equals(a.subcategory()),"关联设备子类必须与水表/电表类型一致，请先在设备台账建档");
         require(db.jdbc.queryForObject("select count(*) from utility_meters where (code=? or asset_id=?) and id<>?",Integer.class,input.code().trim(),input.assetId(),id==null?"":id)==0,"表号或关联设备已登记，不可重复建表");
@@ -30,15 +43,15 @@ public class UtilityMeterService {
             pastDate(input.readDate()); require(input.nextReadDueDate().isAfter(input.readDate()),"下次抄表日期必须晚于底数日期");
             id=id();
             db.jdbc.update("""
-                    insert into utility_meters(id,code,asset_id,name,kind,location,current_reading,previous_reading,unit,read_date,next_read_due_date,status,multiplier,owner,lifecycle_status,cycle_days,initial_reading)
-                    values(?,?,?,?,?,?,?,?,?,?,?,'PENDING',?,?,'ACTIVE',?,?)
-                    """,id,input.code().trim(),a.id(),input.name().trim(),input.kind(),input.location().trim(),input.initialReading(),input.initialReading(),"电表".equals(input.kind())?"kWh":"m³",input.readDate(),input.nextReadDueDate(),input.multiplier(),input.owner().trim(),input.cycleDays(),input.initialReading());
+                    insert into utility_meters(id,code,asset_id,name,kind,location,current_reading,previous_reading,unit,read_date,next_read_due_date,status,multiplier,owner,lifecycle_status,cycle_days,initial_reading,area,model,install_date,last_inspection_date,next_inspection_date)
+                    values(?,?,?,?,?,?,?,?,?,?,?,'PENDING',?,?,'ACTIVE',?,?,?,?,?,?,?)
+                    """,id,input.code().trim(),a.id(),input.name().trim(),input.kind(),input.location().trim(),input.initialReading(),input.initialReading(),"电表".equals(input.kind())?"kWh":"m³",input.readDate(),input.nextReadDueDate(),input.multiplier(),input.owner().trim(),input.cycleDays(),input.initialReading(),text(input.area()),text(input.model()),input.installDate(),input.lastInspectionDate(),input.nextInspectionDate());
             db.audit("METER",id,"CREATE","新建表计："+input.code()+"；初始底数 "+input.initialReading(),operator);
         } else {
             var old=lock(id); version(input.version(),old.version());
             require(old.assetId().equals(input.assetId()) && old.kind().equals(input.kind()) && old.code().equals(input.code().trim()),"表号、关联设备和类型不可更换；换表请停用旧表并新建");
             require(old.initialReading().compareTo(input.initialReading())==0 && old.readDate().equals(input.readDate()) && old.nextReadDueDate().equals(input.nextReadDueDate()),"读数和抄表日期请通过录入抄表或更正修改");
-            db.jdbc.update("update utility_meters set name=?,location=?,owner=?,multiplier=?,cycle_days=?,version=version+1 where id=?",input.name().trim(),input.location().trim(),input.owner().trim(),input.multiplier(),input.cycleDays(),id);
+            db.jdbc.update("update utility_meters set name=?,location=?,owner=?,multiplier=?,cycle_days=?,area=?,model=?,install_date=?,last_inspection_date=?,next_inspection_date=?,version=version+1 where id=?",input.name().trim(),input.location().trim(),input.owner().trim(),input.multiplier(),input.cycleDays(),text(input.area()),text(input.model()),input.installDate(),input.lastInspectionDate(),input.nextInspectionDate(),id);
             db.audit("METER",id,"UPDATE","更新表计资料；倍率 "+old.multiplier()+" → "+input.multiplier()+"（仅影响后续抄表）；负责人 "+old.owner()+" → "+input.owner(),operator);
         }
         return get(id);
@@ -72,7 +85,7 @@ public class UtilityMeterService {
         require(!"ALERT".equals(status) || !text(input.note()).isEmpty(),"异常用量（超过上期三倍）须填写核查说明");
         var readingId=id();
         if(correctionId!=null) db.jdbc.update("update utility_meter_readings set status='VOID' where id=?",correctionId);
-        db.jdbc.update("insert into utility_meter_readings(id,meter_id,previous_reading,current_reading,multiplier,consumption,read_date,next_read_due_date,status,note,correction_of) values(?,?,?,?,?,?,?,?,?,?,?)",readingId,id,previous,input.currentReading(),multiplier,consumption,input.readDate(),input.nextReadDueDate(),status,text(input.note()),correctionId);
+        db.jdbc.update("insert into utility_meter_readings(id,meter_id,previous_reading,current_reading,multiplier,consumption,read_date,next_read_due_date,status,note,correction_of,photo_name,photo_mime,photo_base64) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",readingId,id,previous,input.currentReading(),multiplier,consumption,input.readDate(),input.nextReadDueDate(),status,text(input.note()),correctionId,text(input.photoName()),text(input.photoMime()),input.photoBase64());
         db.jdbc.update("update utility_meters set previous_reading=?,current_reading=?,read_date=?,next_read_due_date=?,status=?,version=version+1 where id=?",previous,input.currentReading(),input.readDate(),input.nextReadDueDate(),status,id);
         db.audit("METER",id,correctionId==null?"READ":"CORRECT","抄表 "+input.readDate()+"："+input.currentReading()+"；用量 "+consumption+"；"+text(input.note()),operator);
         return readings(id).stream().filter(r -> readingId.equals(r.id())).findFirst().orElseThrow();
