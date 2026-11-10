@@ -41,7 +41,9 @@ public class CustomerActivityService {
         customer(input.customerId());
         if(!current.customerId().equals(input.customerId())) throw new BusinessException(400,"意向的关联客户不能变更");
         if((repository.countContractsByIntention(id)>0 || repository.countPledgesByIntention(id)>0)
-            && !current.business().equals(input.business().trim())) throw new BusinessException(409,"已关联业务或合同，不能变更意向业务类型");
+            && (!current.business().equals(input.business().trim())
+                || !java.util.Objects.equals(current.businessDetail(), normalizedBusinessDetail(input))))
+            throw new BusinessException(409,"已关联业务或合同，不能变更意向业务类型");
         validateDemand(input);
         validateStageChange(current.stage(),stage(input.stage()));
         repository.updateIntention(id, input, stage(input.stage()));
@@ -96,10 +98,25 @@ public class CustomerActivityService {
     }
 
     private void validateDemand(CustomerActivityModels.IntentionRequest input) {
+        var business = input.business().trim();
+        var detail = normalizedBusinessDetail(input);
+        if ("运输服务".equals(business) && detail.isBlank()) {
+            throw new BusinessException(400, "运输服务必须选择水路运输、货车运输或火车运输");
+        }
+        if ("运输服务".equals(business)
+                && !Set.of("水路运输", "货车运输", "火车运输").contains(detail)) {
+            throw new BusinessException(400, "运输方式不正确");
+        }
+        if (!"运输服务".equals(business) && !detail.isBlank()) {
+            throw new BusinessException(400, "只有运输服务可以填写运输方式");
+        }
         if(!"仓单质押".equals(input.business().trim())) return;
         PledgeDemand.validate(input.pledgeDemand(),false);
         var owner=input.pledgeDemand().ownerCustomerId();
         if(owner!=null && !owner.isBlank()) customer(owner);
+    }
+    private String normalizedBusinessDetail(CustomerActivityModels.IntentionRequest input) {
+        return input.businessDetail() == null ? "" : input.businessDetail().trim();
     }
     private void validateStageChange(String current,String next) {
         if(Set.of("已流失","已终止").contains(current) && !current.equals(next))

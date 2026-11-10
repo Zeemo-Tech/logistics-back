@@ -46,4 +46,29 @@ class CustomerContractConfigTests {
         assertThrows(BusinessException.class, () -> config.deleteCategory(category.id()));
         assertThrows(BusinessException.class, () -> config.deleteResource(resource.id()));
     }
+
+    @Test
+    void transportContractUsesConfiguredTemplateWithoutParkResource() {
+        var customer = customers.create(new CustomerRequest(
+                null, "运输测试客户", "企业", "91530000TEST000002", "测试法人", "运输联系人",
+                "13800000001", "测试地址", "", "", "运输客户", "运输服务", "测试", "测试负责人",
+                "待签约", "跟进中", "", "", ""));
+        var intention = activities.createIntention(new CustomerActivityModels.IntentionRequest(
+                null, customer.id(), "运输服务", "货车运输", null, "待签约", "测试负责人", "测试", "", "", null));
+        var template = config.templates(true).stream()
+                .filter(item -> "运输服务".equals(item.intentionBusiness())
+                        && "货车运输".equals(item.businessDetail()))
+                .findFirst().orElseThrow();
+        var contract = contracts.create(new ContractRequest(
+                template.title(), template.category(), customer.id(), null, template.id(), null,
+                "2026-01-01", "2027-01-01", "100000", null, null, null,
+                null, "测试负责人", "运输合同正文", "待生效", java.util.List.of(intention.id()), "货车运输"));
+
+        assertEquals("货车运输", contract.businessDetail());
+        assertEquals("", contract.resource());
+        assertEquals(template.id(), contract.templateId());
+        assertThrows(BusinessException.class, () -> activities.createIntention(
+                new CustomerActivityModels.IntentionRequest(
+                        null, customer.id(), "运输服务", null, "待签约", "测试负责人", "测试", "", "")));
+    }
 }

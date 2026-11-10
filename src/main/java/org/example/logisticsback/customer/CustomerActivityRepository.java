@@ -40,18 +40,18 @@ public class CustomerActivityRepository {
 
     public void insertIntention(String id, CustomerActivityModels.IntentionRequest input, String stage) {
         jdbc.update("""
-                insert into customer_intentions (id, customer_id, business, amount, stage, owner, source,
+                insert into customer_intentions (id, customer_id, business, business_detail, amount, stage, owner, source,
                     next_follow_up_at, notes, pledge_demand)
-                values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, id, input.customerId(), input.business().trim(), "仓单质押".equals(input.business().trim()) ? null : input.amount(), stage,
+                values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, id, input.customerId(), input.business().trim(), text(input.businessDetail()), "仓单质押".equals(input.business().trim()) ? null : input.amount(), stage,
                 text(input.owner()), text(input.source()), text(input.nextFollowUpAt()), text(input.notes()), demandJson(input));
     }
 
     public void updateIntention(String id, CustomerActivityModels.IntentionRequest input, String stage) {
         jdbc.update("""
-                update customer_intentions set business = ?, amount = ?, stage = ?, owner = ?, source = ?,
+                update customer_intentions set business = ?, business_detail = ?, amount = ?, stage = ?, owner = ?, source = ?,
                     next_follow_up_at = ?, notes = ?, pledge_demand = ?, updated_at = current_timestamp where id = ?
-                """, input.business().trim(), "仓单质押".equals(input.business().trim()) ? null : input.amount(), stage, text(input.owner()), text(input.source()),
+                """, input.business().trim(), text(input.businessDetail()), "仓单质押".equals(input.business().trim()) ? null : input.amount(), stage, text(input.owner()), text(input.source()),
                 text(input.nextFollowUpAt()), text(input.notes()), demandJson(input), id);
     }
 
@@ -140,7 +140,7 @@ public class CustomerActivityRepository {
     }
     private CustomerActivityModels.Intention mapIntention(ResultSet result, int rowNumber) throws SQLException {
         return new CustomerActivityModels.Intention(
-                result.getString("id"), result.getString("customer_id"), result.getString("business"),
+                result.getString("id"), result.getString("customer_id"), result.getString("business"), result.getString("business_detail"),
                 "仓单质押".equals(result.getString("business")) ? null : result.getBigDecimal("amount"), result.getString("stage"), result.getString("owner"),
                 result.getString("source"), result.getString("next_follow_up_at"),
                 result.getString("notes"),

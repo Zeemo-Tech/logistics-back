@@ -22,5 +22,14 @@ public record ContractRequest(
         @NotBlank @Size(max = 32) String owner,
         @Size(max = 2000) String content,
         @Size(max = 16) String status,
-        List<String> intentionIds) {
+        List<String> intentionIds,
+        @Size(max = 80) String businessDetail) {
+    public ContractRequest(String title, String category, String customerId, String resourceId,
+                           String templateId, String resourceType, String startDate, String endDate,
+                           String amount, BigDecimal deposit, BigDecimal unitPrice, BigDecimal quantity,
+                           BigDecimal area, String owner, String content, String status,
+                           List<String> intentionIds) {
+        this(title, category, customerId, resourceId, templateId, resourceType, startDate, endDate,
+                amount, deposit, unitPrice, quantity, area, owner, content, status, intentionIds, null);
+    }
 }

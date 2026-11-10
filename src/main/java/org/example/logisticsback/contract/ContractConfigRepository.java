@@ -66,17 +66,17 @@ public class ContractConfigRepository {
 
     public void insertTemplate(String id, ContractConfigModels.TemplateRequest input, String status, int sortOrder) {
         jdbc.update("""
-                insert into contract_templates (id, title, resource_type, category, subject, purpose, content, status, sort_order)
-                values (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, id, input.title().trim(), text(input.resourceType()), text(input.category()),
+                insert into contract_templates (id, title, resource_type, intention_business, business_detail, category, subject, purpose, content, status, sort_order)
+                values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, id, input.title().trim(), text(input.resourceType()), text(input.intentionBusiness()), text(input.businessDetail()), text(input.category()),
                 text(input.subject()), text(input.purpose()), text(input.content()), status, sortOrder);
     }
 
     public void updateTemplate(String id, ContractConfigModels.TemplateRequest input, String status, int sortOrder) {
         jdbc.update("""
-                update contract_templates set title = ?, resource_type = ?, category = ?, subject = ?,
+                update contract_templates set title = ?, resource_type = ?, intention_business = ?, business_detail = ?, category = ?, subject = ?,
                     purpose = ?, content = ?, status = ?, sort_order = ?, updated_at = current_timestamp where id = ?
-                """, input.title().trim(), text(input.resourceType()), text(input.category()),
+                """, input.title().trim(), text(input.resourceType()), text(input.intentionBusiness()), text(input.businessDetail()), text(input.category()),
                 text(input.subject()), text(input.purpose()), text(input.content()), status, sortOrder, id);
     }
 
@@ -211,6 +211,7 @@ public class ContractConfigRepository {
     private ContractConfigModels.Template mapTemplate(ResultSet result, int rowNumber) throws SQLException {
         return new ContractConfigModels.Template(
                 result.getString("id"), result.getString("title"), result.getString("resource_type"),
+                result.getString("intention_business"), result.getString("business_detail"),
                 result.getString("category"), result.getString("subject"), result.getString("purpose"),
                 result.getString("content"), result.getString("status"), result.getInt("sort_order"));
     }

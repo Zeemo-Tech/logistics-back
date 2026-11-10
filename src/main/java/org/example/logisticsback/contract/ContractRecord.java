@@ -10,6 +10,7 @@ public record ContractRecord(
         String counterparty,
         String resource,
         String resourceType,
+        String businessDetail,
         String customerId,
         String resourceId,
         String templateId,

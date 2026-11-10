@@ -64,13 +64,13 @@ public class ContractRepository {
                        String intentionIds, String intentionBusinesses) {
         jdbc.update("""
                 insert into contracts (id, title, category, counterparty, resource, start_date, end_date,
-                    amount, owner, document_count, status, customer_id, resource_id, resource_type,
+                    amount, owner, document_count, status, customer_id, resource_id, resource_type, business_detail,
                     template_id, content, deposit, unit_price, quantity, area, intention_ids, intention_businesses)
-                values (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                values (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 id, input.title().trim(), input.category().trim(), counterparty, resourceName,
                 input.startDate(), input.endDate(), text(input.amount()), input.owner().trim(),
-                status(input.status()), input.customerId(), blank(input.resourceId()), blank(input.resourceType()),
+                status(input.status()), input.customerId(), blank(input.resourceId()), blank(input.resourceType()), text(input.businessDetail()),
                 blank(input.templateId()), text(input.content()), input.deposit(), input.unitPrice(),
                 input.quantity(), input.area(), intentionIds, intentionBusinesses);
     }
@@ -80,14 +80,14 @@ public class ContractRepository {
         jdbc.update("""
                 update contracts set title = ?, category = ?, counterparty = ?, resource = ?,
                     start_date = ?, end_date = ?, amount = ?, owner = ?, status = ?, customer_id = ?,
-                    resource_id = ?, resource_type = ?, template_id = ?, content = ?, deposit = ?,
+                    resource_id = ?, resource_type = ?, business_detail = ?, template_id = ?, content = ?, deposit = ?,
                     unit_price = ?, quantity = ?, area = ?, intention_ids = ?, intention_businesses = ?,
                     updated_at = current_timestamp
                 where id = ?
                 """,
                 input.title().trim(), input.category().trim(), counterparty, resourceName,
                 input.startDate(), input.endDate(), text(input.amount()), input.owner().trim(),
-                status(input.status()), input.customerId(), blank(input.resourceId()), blank(input.resourceType()),
+                status(input.status()), input.customerId(), blank(input.resourceId()), blank(input.resourceType()), text(input.businessDetail()),
                 blank(input.templateId()), text(input.content()), input.deposit(), input.unitPrice(),
                 input.quantity(), input.area(), intentionIds, intentionBusinesses, id);
     }
@@ -123,6 +123,7 @@ public class ContractRepository {
                 result.getString("counterparty"),
                 result.getString("resource"),
                 result.getString("resource_type"),
+                result.getString("business_detail"),
                 result.getString("customer_id"),
                 result.getString("resource_id"),
                 result.getString("template_id"),

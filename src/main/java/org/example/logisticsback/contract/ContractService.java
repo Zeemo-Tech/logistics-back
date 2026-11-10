@@ -104,15 +104,48 @@ public class ContractService {
         if (input.status() != null && !input.status().isBlank() && !STATUSES.contains(input.status())) {
             throw new BusinessException(400, "合同状态不正确");
         }
+        var transportDetail = transportDetail(input);
+        var transportTemplateCategory = jdbc.queryForObject(
+                "select count(*) from contract_templates where category = ? and intention_business = '运输服务'",
+                Integer.class, input.category());
+        var transportContract = transportDetail != null || (transportTemplateCategory != null && transportTemplateCategory > 0);
+        if (transportContract && transportDetail == null) {
+            throw new BusinessException(400, "运输合同必须关联运输服务意向");
+        }
+        if (transportContract && input.intentionIds() != null && input.intentionIds().stream().anyMatch(id -> {
+            if (id == null || id.isBlank()) return false;
+            var business = jdbc.query("select business from customer_intentions where id = ?", (rs, row) -> rs.getString(1), id);
+            return !business.isEmpty() && !"运输服务".equals(business.get(0));
+        })) {
+            throw new BusinessException(400, "运输合同只能关联运输服务意向");
+        }
         if (!Set.of("监管协议", "仓储费服务", "监管费服务").contains(input.category())
+                && !transportContract
                 && (input.resourceId() == null || input.resourceId().isBlank())) {
             throw new BusinessException(400, "请选择归属园区资源");
+        }
+        if (transportContract && input.resourceId() != null && !input.resourceId().isBlank()) {
+            throw new BusinessException(400, "运输合同不关联园区资源");
+        }
+        if (transportContract && (input.amount() == null || input.amount().isBlank())) {
+            throw new BusinessException(400, "请填写运输合同金额");
         }
         if (input.resourceId() != null && !input.resourceId().isBlank() && resourceName(input.resourceId()) == null) {
             throw new BusinessException(400, "归属园区资源不存在");
         }
         if (input.templateId() != null && !input.templateId().isBlank() && templateCount(input.templateId()) == 0) {
             throw new BusinessException(400, "合同模板不存在");
+        }
+        if (transportContract && input.templateId() != null && !input.templateId().isBlank()) {
+            var templates = jdbc.query("select intention_business, business_detail, category from contract_templates where id = ?",
+                    (rs, row) -> List.of(rs.getString(1), rs.getString(2), rs.getString(3)), input.templateId());
+            if (!templates.isEmpty()) {
+                var template = templates.get(0);
+                if (!"运输服务".equals(template.get(0)) || !input.category().equals(template.get(2))
+                        || (template.get(1) != null && !template.get(1).isBlank() && !template.get(1).equals(transportDetail))) {
+                    throw new BusinessException(400, "合同模板与运输意向方式不匹配");
+                }
+            }
         }
         if(currentId!=null) {
             var refs=jdbc.queryForList("select borrower_customer_id,owner_customer_id,agreement_contract_id,start_date,end_date,status from pledge_businesses where (contract_id=? or agreement_contract_id=?) and deleted_at is null",currentId,currentId);
@@ -160,15 +193,40 @@ public class ContractService {
         var businesses = new ArrayList<String>();
         for (var intentionId : input.intentionIds()) {
             if (intentionId == null || intentionId.isBlank()) continue;
-            var rows = jdbc.query("select customer_id, business,stage from customer_intentions where id = ?",
-                    (rs, row) -> List.of(rs.getString(1), rs.getString(2),rs.getString(3)), intentionId);
+            var rows = jdbc.query("select customer_id, business, business_detail, stage from customer_intentions where id = ?",
+                    (rs, row) -> List.of(rs.getString(1), rs.getString(2),rs.getString(3),rs.getString(4)), intentionId);
             if (rows.isEmpty()) throw new BusinessException(400, "关联的客户意向不存在");
             if (!input.customerId().equals(rows.get(0).get(0))) {
                 throw new BusinessException(400, "关联的客户意向不属于当前客户");
             }
-            businesses.add(rows.get(0).get(1));
+            if (Set.of("已流失", "已终止").contains(rows.get(0).get(3))) {
+                throw new BusinessException(400, "已结束的客户意向不能关联合同");
+            }
+            var business = rows.get(0).get(1);
+            var detail = rows.get(0).get(2);
+            businesses.add("运输服务".equals(business) && detail != null && !detail.isBlank()
+                    ? business + "·" + detail : business);
         }
         return String.join(",", businesses);
+    }
+
+    private String transportDetail(ContractRequest input) {
+        if (input.intentionIds() == null || input.intentionIds().isEmpty()) return null;
+        String detail = null;
+        for (var id : input.intentionIds()) {
+            if (id == null || id.isBlank()) continue;
+            var rows = jdbc.query("select business, business_detail, customer_id, stage from customer_intentions where id = ?",
+                    (rs, row) -> List.of(rs.getString(1), rs.getString(2), rs.getString(3), rs.getString(4)), id);
+            if (rows.isEmpty()) throw new BusinessException(400, "关联的客户意向不存在");
+            var row = rows.get(0);
+            if ("运输服务".equals(row.get(0))) {
+                var current = row.get(1) == null ? "" : row.get(1).trim();
+                if (current.isBlank()) throw new BusinessException(400, "运输意向缺少运输方式");
+                if (detail != null && !detail.equals(current)) throw new BusinessException(400, "同一合同只能关联一种运输方式");
+                detail = current;
+            }
+        }
+        return detail;
     }
 
     private void applyIntentionStage(ContractRequest input) {

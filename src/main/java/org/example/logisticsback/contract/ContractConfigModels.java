@@ -20,6 +20,8 @@ public final class ContractConfigModels {
             String id,
             String title,
             String resourceType,
+            String intentionBusiness,
+            String businessDetail,
             String category,
             String subject,
             String purpose,
@@ -31,6 +33,8 @@ public final class ContractConfigModels {
     public record TemplateRequest(
             @NotBlank @Size(max = 200) String title,
             @Size(max = 80) String resourceType,
+            @Size(max = 80) String intentionBusiness,
+            @Size(max = 80) String businessDetail,
             @Size(max = 80) String category,
             @Size(max = 300) String subject,
             @Size(max = 500) String purpose,

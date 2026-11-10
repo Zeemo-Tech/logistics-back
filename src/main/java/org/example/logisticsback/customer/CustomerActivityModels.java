@@ -13,6 +13,7 @@ public final class CustomerActivityModels {
             String id,
             String customerId,
             String business,
+            String businessDetail,
             BigDecimal amount,
             String stage,
             String owner,
@@ -30,6 +31,7 @@ public final class CustomerActivityModels {
             @Size(max = 36) String id,
             @NotBlank String customerId,
             @NotBlank @Size(max = 80) String business,
+            @Size(max = 80) String businessDetail,
             BigDecimal amount,
             @Size(max = 40) String stage,
             @Size(max = 80) String owner,
@@ -37,8 +39,12 @@ public final class CustomerActivityModels {
             @Size(max = 32) String nextFollowUpAt,
             @Size(max = 2000) String notes, PledgeDemand pledgeDemand) {
         public IntentionRequest(String id,String customerId,String business,BigDecimal amount,String stage,
+                                String businessDetail, String owner,String source,String nextFollowUpAt,String notes) {
+            this(id,customerId,business,businessDetail,amount,stage,owner,source,nextFollowUpAt,notes,null);
+        }
+        public IntentionRequest(String id,String customerId,String business,BigDecimal amount,String stage,
                                 String owner,String source,String nextFollowUpAt,String notes) {
-            this(id,customerId,business,amount,stage,owner,source,nextFollowUpAt,notes,null);
+            this(id,customerId,business,"",amount,stage,owner,source,nextFollowUpAt,notes,null);
         }
     }
 
