@@ -26,5 +26,6 @@ public record ContractRecord(
         String status,
         String content,
         List<String> intentionIds,
-        List<String> intentionBusinesses) {
+        List<String> intentionBusinesses,
+        String railTerms) {
 }

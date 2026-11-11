@@ -23,13 +23,25 @@ public record ContractRequest(
         @Size(max = 2000) String content,
         @Size(max = 16) String status,
         List<String> intentionIds,
-        @Size(max = 80) String businessDetail) {
+        @Size(max = 80) String businessDetail,
+        @Size(max = 2000) String railTerms) {
+    public ContractRequest(String title, String category, String customerId, String resourceId,
+                           String templateId, String resourceType, String startDate, String endDate,
+                           String amount, BigDecimal deposit, BigDecimal unitPrice, BigDecimal quantity,
+                           BigDecimal area, String owner, String content, String status,
+                           List<String> intentionIds, String businessDetail) {
+        this(title, category, customerId, resourceId, templateId, resourceType, startDate, endDate,
+                amount, deposit, unitPrice, quantity, area, owner, content, status, intentionIds,
+                businessDetail, null);
+    }
+
     public ContractRequest(String title, String category, String customerId, String resourceId,
                            String templateId, String resourceType, String startDate, String endDate,
                            String amount, BigDecimal deposit, BigDecimal unitPrice, BigDecimal quantity,
                            BigDecimal area, String owner, String content, String status,
                            List<String> intentionIds) {
         this(title, category, customerId, resourceId, templateId, resourceType, startDate, endDate,
-                amount, deposit, unitPrice, quantity, area, owner, content, status, intentionIds, null);
+                amount, deposit, unitPrice, quantity, area, owner, content, status, intentionIds, null,
+                null);
     }
 }

@@ -65,14 +65,14 @@ public class ContractRepository {
         jdbc.update("""
                 insert into contracts (id, title, category, counterparty, resource, start_date, end_date,
                     amount, owner, document_count, status, customer_id, resource_id, resource_type, business_detail,
-                    template_id, content, deposit, unit_price, quantity, area, intention_ids, intention_businesses)
-                values (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    template_id, content, deposit, unit_price, quantity, area, intention_ids, intention_businesses, rail_terms)
+                values (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 id, input.title().trim(), input.category().trim(), counterparty, resourceName,
                 input.startDate(), input.endDate(), text(input.amount()), input.owner().trim(),
                 status(input.status()), input.customerId(), blank(input.resourceId()), blank(input.resourceType()), text(input.businessDetail()),
                 blank(input.templateId()), text(input.content()), input.deposit(), input.unitPrice(),
-                input.quantity(), input.area(), intentionIds, intentionBusinesses);
+                input.quantity(), input.area(), intentionIds, intentionBusinesses, text(input.railTerms()));
     }
 
     public void update(String id, ContractRequest input, String counterparty, String resourceName,
@@ -82,14 +82,14 @@ public class ContractRepository {
                     start_date = ?, end_date = ?, amount = ?, owner = ?, status = ?, customer_id = ?,
                     resource_id = ?, resource_type = ?, business_detail = ?, template_id = ?, content = ?, deposit = ?,
                     unit_price = ?, quantity = ?, area = ?, intention_ids = ?, intention_businesses = ?,
-                    updated_at = current_timestamp
+                    rail_terms = ?, updated_at = current_timestamp
                 where id = ?
                 """,
                 input.title().trim(), input.category().trim(), counterparty, resourceName,
                 input.startDate(), input.endDate(), text(input.amount()), input.owner().trim(),
                 status(input.status()), input.customerId(), blank(input.resourceId()), blank(input.resourceType()), text(input.businessDetail()),
                 blank(input.templateId()), text(input.content()), input.deposit(), input.unitPrice(),
-                input.quantity(), input.area(), intentionIds, intentionBusinesses, id);
+                input.quantity(), input.area(), intentionIds, intentionBusinesses, text(input.railTerms()), id);
     }
 
     public void delete(String id) {
@@ -139,7 +139,8 @@ public class ContractRepository {
                 result.getString("status"),
                 result.getString("content"),
                 split(result.getString("intention_ids")),
-                split(result.getString("intention_businesses")));
+                split(result.getString("intention_businesses")),
+                result.getString("rail_terms"));
     }
 
     private static String status(String value) {
