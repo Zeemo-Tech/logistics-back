@@ -11,22 +11,14 @@ import java.util.Set;
 import java.util.UUID;
 
 import org.example.logisticsback.common.BusinessException;
+import org.springframework.web.multipart.MultipartFile;
+import java.io.IOException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class RailService {
-    private static final Map<Integer, String> PROJECT_CODES = Map.of(
-            58, "KM2601076e",
-            60, "KM2601076c",
-            70, "KM2601076d");
-
-    private static final Map<Integer, String> PRICE_COEFFS = Map.of(
-            58, "34.1%",
-            60, "-27%",
-            70, "-35.6%");
-
     private static final Map<String, Map<String, String>> WRITABLE = writable();
 
     private static final Set<String> RATE_STATUS = Set.of("生效", "停用");
@@ -36,6 +28,9 @@ public class RailService {
     private static final Set<String> SHIPMENT_STATUS = Set.of("待发运", "运输中", "已到站", "已交付", "异常");
     private static final Set<String> SETTLEMENT_STATUS = Set.of("待对账", "已对账", "已结清");
     private static final Set<String> EXCEPTIONS = Set.of("无", "箱型不足", "限高装不进", "吨数不符", "计划改号");
+    private static final Set<String> PROJECT_STATUS = Set.of("生效", "停用");
+    private static final Set<Integer> BOX_TYPES = Set.of(58, 60, 70);
+    private static final Set<String> DELIVERY_STATUS = Set.of("待配送", "配送中", "已签收", "异常");
 
     private final JdbcTemplate jdbc;
 
@@ -51,6 +46,65 @@ public class RailService {
                         .anyMatch(value -> value != null && value.toString().toLowerCase().contains(query)))
                 .map(RailService::camelize)
                 .toList();
+    }
+
+    public List<Map<String, Object>> attachments(String entity, String recordId) {
+        requireEntity(entity);
+        return jdbc.queryForList("""
+                select id, entity, record_id as record_id, doc_type, file_name, mime_type,
+                       uploaded_by, uploaded_at
+                from rail_attachments where entity = ? and record_id = ?
+                order by uploaded_at desc
+                """, entity, recordId).stream().map(RailService::camelize).toList();
+    }
+
+    @Transactional
+    public Map<String, Object> uploadAttachment(String entity, String recordId, String docType,
+            String uploadedBy, MultipartFile file) {
+        requireEntity(entity);
+        var exists = scalar("select count(*) from " + table(entity) + " where id = ?", recordId);
+        if (exists == 0) throw new BusinessException(400, "业务记录不存在，不能上传单据");
+        if (file == null || file.isEmpty() || file.getSize() > 20L * 1024 * 1024) {
+            throw new BusinessException(400, "文件不能为空且不得超过 20 MB");
+        }
+        var name = file.getOriginalFilename() == null ? "单据文件" : file.getOriginalFilename().replace('\\', '/');
+        name = name.substring(name.lastIndexOf('/') + 1).replaceAll("[\\p{Cntrl}]", "").trim();
+        if (!name.matches("(?i).+\\.(pdf|jpg|jpeg|png|xls|xlsx|csv)")) {
+            throw new BusinessException(400, "仅支持 PDF、图片、Excel 或 CSV 文件");
+        }
+        try {
+            var id = UUID.randomUUID().toString();
+            var mimeType = file.getContentType() == null ? "application/octet-stream" : file.getContentType();
+            jdbc.update("""
+                    insert into rail_attachments (id, entity, record_id, doc_type, file_name, mime_type, file_bytes, uploaded_by)
+                    values (?, ?, ?, ?, ?, ?, ?, ?)
+                    """, id, entity, recordId, docType == null || docType.isBlank() ? "业务单据" : docType.trim(),
+                    name, mimeType, file.getBytes(), uploadedBy == null ? "" : uploadedBy);
+            return camelize(jdbc.queryForMap("""
+                    select id, entity, record_id as record_id, doc_type, file_name, mime_type,
+                           uploaded_by, uploaded_at from rail_attachments where id = ?
+                    """, id));
+        } catch (IOException exception) {
+            throw new BusinessException(400, "单据文件读取失败");
+        }
+    }
+
+    public byte[] attachmentFile(String id) {
+        var rows = jdbc.queryForList("select file_bytes from rail_attachments where id = ?", id);
+        if (rows.isEmpty()) throw new BusinessException(404, "单据不存在");
+        return (byte[]) rows.get(0).get("FILE_BYTES");
+    }
+
+    public Map<String, Object> attachmentMetadata(String id) {
+        return jdbc.queryForList("select id, file_name, mime_type from rail_attachments where id = ?", id)
+                .stream().findFirst().orElseThrow(() -> new BusinessException(404, "单据不存在"));
+    }
+
+    @Transactional
+    public void deleteAttachment(String id) {
+        if (jdbc.update("delete from rail_attachments where id = ?", id) == 0) {
+            throw new BusinessException(404, "单据不存在");
+        }
     }
 
     public Map<String, Object> get(String entity, String id) {
@@ -75,7 +129,26 @@ public class RailService {
         result.put("lowLoads", scalar("select count(*) from rail_demands where tons < 55 and status not in ('已完成', '已取消')"));
         result.put("overHeight", scalar("select count(*) from rail_demands where stack_height > 2.6 and status not in ('已完成', '已取消')"));
         result.put("grossProfit", decimal("select coalesce(sum(gross_profit), 0) from rail_settlements"));
+        result.put("pendingDeliveries", scalar("select count(*) from rail_deliveries where status in ('待配送', '配送中')"));
         result.put("recentDemands", list("demands", null).stream().limit(6).toList());
+        var trend = new ArrayList<>(jdbc.queryForList("""
+                select load_date as date, count(*) as cars, coalesce(sum(tons), 0) as tons
+                from rail_demands group by load_date order by load_date desc limit 7
+                """));
+        java.util.Collections.reverse(trend);
+        result.put("trend", trend.stream().map(RailService::camelize).toList());
+        result.put("boxTypes", jdbc.queryForList("""
+                select box_type, count(*) as cars, coalesce(sum(tons), 0) as tons
+                from rail_demands group by box_type order by box_type desc
+                """).stream().map(RailService::camelize).toList());
+        result.put("routeTons", jdbc.queryForList("""
+                select from_point, to_station, coalesce(sum(tons), 0) as tons
+                from rail_demands group by from_point, to_station order by tons desc limit 6
+                """).stream().map(RailService::camelize).toList());
+        result.put("statusCounts", jdbc.queryForList("""
+                select status, count(*) as count from rail_demands
+                group by status order by count desc
+                """).stream().map(RailService::camelize).toList());
         result.put("alerts", alerts());
         return result;
     }
@@ -121,7 +194,9 @@ public class RailService {
         var id = UUID.randomUUID().toString();
         var values = new LinkedHashMap<String, Object>();
         values.put("id", id);
-        values.put("code", codePrefix(entity) + "-" + id.substring(0, 8).toUpperCase());
+        if (!"projectCodes".equals(entity)) {
+            values.put("code", codePrefix(entity) + "-" + id.substring(0, 8).toUpperCase());
+        }
         applyValues(entity, input, input, values, null);
         var names = new ArrayList<>(values.keySet());
         var sql = "insert into " + table(entity) + " (" + String.join(", ", names) + ") values ("
@@ -195,6 +270,14 @@ public class RailService {
                         next, row.get(0).get("DEMAND_ID"));
             }
         }
+        if ("deliveries".equals(entity)) {
+            var row = jdbc.queryForList("select demand_id, status from rail_deliveries where id = ?", id);
+            if (row.isEmpty()) return;
+            if ("已签收".equals(value(row.get(0), "STATUS"))) {
+                jdbc.update("update rail_demands set status = '已完成', updated_at = current_timestamp where id = ?",
+                        row.get(0).get("DEMAND_ID"));
+            }
+        }
         if ("settlements".equals(entity)) {
             var row = jdbc.queryForList("select status, settled_at from rail_settlements where id = ?", id);
             if (row.isEmpty()) return;
@@ -209,6 +292,11 @@ public class RailService {
     public void delete(String entity, String id) {
         requireEntity(entity);
         get(entity, id);
+        var attachments = scalar(
+                "select count(*) from rail_attachments where entity = ? and record_id = ?", entity, id);
+        if (attachments > 0) {
+            throw new BusinessException(409, "该记录还有已上传单据，请先删除单据");
+        }
         if (references(entity, id) > 0) {
             throw new BusinessException(409, "该记录已有业务关联，不能删除；请保留运输历史或先解除关联");
         }
@@ -229,21 +317,64 @@ public class RailService {
         if ("quotes".equals(entity)) fillQuote(values, changes, id);
         if ("demands".equals(entity)) fillDemand(values, changes);
         if ("dispatches".equals(entity)) fillDispatch(values, changes);
+        if ("shipments".equals(entity)) fillShipment(values);
+        if ("deliveries".equals(entity)) fillDelivery(values);
+        if ("projectCodes".equals(entity)) fillProjectMapping(values);
         if ("settlements".equals(entity)) fillSettlement(values, changes);
     }
 
     private void fillRate(Map<String, Object> values) {
         var boxType = integerOf(values.get("box_type"));
-        if (boxType == 0) throw new BusinessException(400, "请选择箱型");
-        if (!PROJECT_CODES.containsKey(boxType)) throw new BusinessException(400, "箱型仅支持 58、60、70");
-        values.put("project_code", PROJECT_CODES.get(boxType));
-        if (values.get("price_coeff") == null || String.valueOf(values.get("price_coeff")).isBlank()) {
-            values.put("price_coeff", PRICE_COEFFS.get(boxType));
+        if (!BOX_TYPES.contains(boxType)) throw new BusinessException(400, "箱型仅支持 58、60、70");
+        var mapping = resolveProjectMapping(boxType, value(values, "project_code"));
+        values.put("project_code", mapping.get("PROJECT_CODE"));
+        if (value(values, "price_coeff").isBlank()) {
+            values.put("price_coeff", value(mapping, "PRICE_COEFF"));
         }
         validateChoice(values, "status", RATE_STATUS);
     }
 
+    private Map<String, Object> resolveProjectMapping(int boxType, String projectCode) {
+        if (!projectCode.isBlank()) {
+            var mapping = currentRow("""
+                    select project_code, price_coeff from rail_project_codes
+                    where project_code = ? and box_type = ? and status = '生效'
+                    """, projectCode, boxType);
+            if (mapping == null) throw new BusinessException(400, "所选项目号不属于该箱型或已停用");
+            return mapping;
+        }
+        var mapping = currentRow("""
+                select project_code, price_coeff from rail_project_codes
+                where box_type = ? and status = '生效'
+                order by effective_from desc, project_code limit 1
+                """, boxType);
+        if (mapping == null) throw new BusinessException(400, "请先在箱型配置中维护该箱型的项目号");
+        return mapping;
+    }
+
+    private void fillProjectMapping(Map<String, Object> values) {
+        var boxType = integerOf(values.get("box_type"));
+        if (!BOX_TYPES.contains(boxType)) throw new BusinessException(400, "箱型仅支持 58、60、70");
+        if (value(values, "project_code").isBlank()) throw new BusinessException(400, "请填写铁路项目号");
+        validateChoice(values, "status", PROJECT_STATUS);
+    }
+
+    private void fillRailCustomer(Map<String, Object> values) {
+        var customerId = values.get("customer_id");
+        if (customerId == null) throw new BusinessException(400, "请选择客户档案");
+        var customer = currentRow("select name from customers where id = ?", customerId);
+        if (customer == null) throw new BusinessException(400, "客户档案不存在");
+        var matched = scalar("""
+                select count(*) from customer_intentions
+                where customer_id = ? and business = '运输服务'
+                  and business_detail = '火车运输' and stage not in ('已流失', '已终止')
+                """, customerId);
+        if (matched == 0) throw new BusinessException(400, "该客户没有有效的火车运输意向");
+        values.put("customer_name", customer.get("NAME"));
+    }
+
     private void fillQuote(Map<String, Object> values, Map<String, Object> changes, String id) {
+        fillRailCustomer(values);
         var rateId = values.get("rate_id");
         var rateChanged = changes.containsKey("rateId");
         if (rateChanged && rateId != null) {
@@ -272,10 +403,25 @@ public class RailService {
     }
 
     private void fillDemand(Map<String, Object> values, Map<String, Object> changes) {
+        var quoteId = values.get("quote_id");
+        if (quoteId != null) {
+            var quote = currentRow("""
+                    select q.customer_id, q.box_type, q.tons, r.from_point, r.to_station,
+                           r.project_code
+                    from rail_quotes q left join rail_rates r on r.id = q.rate_id
+                    where q.id = ?
+                    """, quoteId);
+            if (quote == null) throw new BusinessException(400, "关联报价单不存在");
+            if (value(values, "customer_id").isBlank()) values.put("customer_id", quote.get("CUSTOMER_ID"));
+            if (value(values, "from_point").isBlank()) values.put("from_point", quote.get("FROM_POINT"));
+            if (value(values, "to_station").isBlank()) values.put("to_station", quote.get("TO_STATION"));
+            if (values.get("box_type") == null) values.put("box_type", integerOf(quote.get("BOX_TYPE")));
+            if (value(values, "project_code").isBlank()) values.put("project_code", quote.get("PROJECT_CODE"));
+        }
+        fillRailCustomer(values);
         var boxType = integerOf(values.get("box_type"));
-        if (boxType == 0) throw new BusinessException(400, "请选择箱型");
-        if (!PROJECT_CODES.containsKey(boxType)) throw new BusinessException(400, "箱型仅支持 58、60、70");
-        values.put("project_code", PROJECT_CODES.get(boxType));
+        if (!BOX_TYPES.contains(boxType)) throw new BusinessException(400, "箱型仅支持 58、60、70");
+        values.put("project_code", resolveProjectMapping(boxType, value(values, "project_code")).get("PROJECT_CODE"));
         if (changes.containsKey("boxType") && !changes.containsKey("tons")) values.put("tons", boxType);
         if (values.get("tons") == null || decimalOf(values.get("tons")).compareTo(BigDecimal.ZERO) <= 0) values.put("tons", boxType);
         var tons = decimalOf(values.get("tons"));
@@ -289,14 +435,78 @@ public class RailService {
     private void fillDispatch(Map<String, Object> values, Map<String, Object> changes) {
         var demandId = values.get("demand_id");
         if (demandId == null) throw new BusinessException(400, "请选择需求计划");
-        var demand = currentRow("select box_type, bales from rail_demands where id = ?", demandId);
+        var demand = currentRow("select box_type, bales, from_point from rail_demands where id = ?", demandId);
         if (demand == null) throw new BusinessException(400, "需求计划不存在");
         values.put("box_type", integerOf(demand.get("BOX_TYPE")));
         if (changes.containsKey("demandId") && !changes.containsKey("bales")) {
             values.put("bales", integerOf(demand.get("BALES")));
         }
+        if (value(values, "pickup_point").isBlank()) {
+            values.put("pickup_point", demand.get("FROM_POINT"));
+        }
         validateChoice(values, "status", DISPATCH_STATUS);
         validateChoice(values, "exception_type", EXCEPTIONS);
+    }
+
+    private void fillShipment(Map<String, Object> values) {
+        validateChoice(values, "status", SHIPMENT_STATUS);
+        var demandId = values.get("demand_id");
+        if (demandId == null) throw new BusinessException(400, "请选择需求计划");
+        var demand = currentRow("select id from rail_demands where id = ?", demandId);
+        if (demand == null) throw new BusinessException(400, "需求计划不存在");
+        if (value(values, "wagon_no").isBlank()) {
+            var wagon = currentRow("""
+                    select wagon_no from rail_dispatches
+                    where demand_id = ? and wagon_no <> ''
+                    order by created_at desc limit 1
+                    """, demandId);
+            if (wagon != null) values.put("wagon_no", wagon.get("WAGON_NO"));
+        }
+        if (value(values, "wagon_no").isBlank()) {
+            throw new BusinessException(400, "该需求还没有装车派单车皮号");
+        }
+    }
+
+    private void fillDelivery(Map<String, Object> values) {
+        validateChoice(values, "status", DELIVERY_STATUS);
+        var demandId = values.get("demand_id");
+        if (demandId == null) throw new BusinessException(400, "请选择需求计划");
+        var demand = currentRow("""
+                select id, consignee, to_station, tons, bales from rail_demands where id = ?
+                """, demandId);
+        if (demand == null) throw new BusinessException(400, "需求计划不存在");
+        if (value(values, "consignee_name").isBlank()) {
+            values.put("consignee_name", demand.get("CONSIGNEE"));
+        }
+        if (value(values, "destination").isBlank()) {
+            values.put("destination", demand.get("TO_STATION"));
+        }
+        if (decimalOf(values.getOrDefault("tons", 0)).compareTo(BigDecimal.ZERO) <= 0) {
+            values.put("tons", decimalOf(demand.get("TONS")));
+        }
+        if (integerOf(values.getOrDefault("pieces", 0)) <= 0) {
+            values.put("pieces", integerOf(demand.get("BALES")));
+        }
+        if (value(values, "wagon_no").isBlank()) {
+            var wagon = currentRow("""
+                    select wagon_no from rail_dispatches
+                    where demand_id = ? and wagon_no <> ''
+                    order by created_at desc limit 1
+                    """, demandId);
+            if (wagon != null) values.put("wagon_no", wagon.get("WAGON_NO"));
+        }
+        if (value(values, "consignee_name").isBlank()) {
+            throw new BusinessException(400, "请填写收货人");
+        }
+        if (decimalOf(values.getOrDefault("tons", 0)).compareTo(BigDecimal.ZERO) <= 0) {
+            throw new BusinessException(400, "配送吨数必须大于 0");
+        }
+        if ("已签收".equals(value(values, "status"))) {
+            if (value(values, "signed_by").isBlank()) throw new BusinessException(400, "已签收必须填写签收人");
+            if (value(values, "delivered_at").isBlank()) {
+                values.put("delivered_at", LocalDateTime.now().toString().replace('T', ' ').substring(0, 16));
+            }
+        }
     }
 
     private void fillSettlement(Map<String, Object> values, Map<String, Object> changes) {
@@ -320,22 +530,18 @@ public class RailService {
     private void validate(String entity, Map<String, Object> input, String id) {
         if ("rates".equals(entity)) {
             var boxType = integerOf(input.get("boxType"));
-            if (boxType != 0 && !PROJECT_CODES.containsKey(boxType)) {
-                throw new BusinessException(400, "箱型仅支持 58、60、70");
-            }
+            if (boxType <= 0) throw new BusinessException(400, "请选择箱型");
             validateChoice(input, "status", RATE_STATUS);
         }
-        if ("quotes".equals(entity) && id == null && text(input.get("customerName")).isBlank()) {
-            throw new BusinessException(400, "请填写客户名称");
+        if ("quotes".equals(entity) && id == null && text(input.get("customerId")).isBlank()) {
+            throw new BusinessException(400, "请选择客户档案");
         }
         if ("quotes".equals(entity) && decimalOf(input.getOrDefault("tons", 1)).compareTo(BigDecimal.ZERO) <= 0) {
             throw new BusinessException(400, "装载吨数必须大于 0");
         }
         if ("demands".equals(entity)) {
             var boxType = integerOf(input.get("boxType"));
-            if (boxType != 0 && !PROJECT_CODES.containsKey(boxType)) {
-                throw new BusinessException(400, "箱型仅支持 58、60、70");
-            }
+            if (boxType <= 0) throw new BusinessException(400, "请选择箱型");
             if (input.containsKey("tons") && decimalOf(input.get("tons")).compareTo(BigDecimal.valueOf(80)) > 0) {
                 throw new BusinessException(400, "单车皮吨数不能超过 80 吨");
             }
@@ -346,6 +552,16 @@ public class RailService {
         }
         if ("shipments".equals(entity) && input.containsKey("wagonNo") && text(input.get("wagonNo")).isBlank()) {
             throw new BusinessException(400, "请填写车皮号");
+        }
+        if ("projectCodes".equals(entity)) {
+            var projectCode = value(input, "projectCode").trim();
+            if (!projectCode.isBlank()) {
+                var duplicated = scalar("""
+                        select count(*) from rail_project_codes
+                        where project_code = ? and id <> coalesce(?, '')
+                        """, projectCode, id);
+                if (duplicated > 0) throw new BusinessException(409, "项目号已存在，请勿重复配置");
+            }
         }
     }
 
@@ -361,27 +577,53 @@ public class RailService {
     private void requireFields(String entity, Map<String, Object> input) {
         Set<String> required = switch (entity) {
             case "rates" -> Set.of("fromPoint", "toStation", "boxType", "pricePerWagon");
-            case "quotes" -> Set.of("customerName", "rateId", "tons");
+            case "quotes" -> Set.of("customerId", "rateId", "tons");
             case "demands" -> Set.of("loadDate", "fromPoint", "toStation", "boxType", "tons");
             case "dispatches" -> Set.of("demandId");
-            case "shipments" -> Set.of("demandId", "wagonNo");
+            case "shipments" -> Set.of("demandId");
             case "settlements" -> Set.of("customerName");
+            case "deliveries" -> Set.of("demandId");
+            case "projectCodes" -> Set.of("boxType", "projectCode");
             default -> Set.of();
         };
         for (var field : required) {
-            if (!present(input, field)) throw new BusinessException(400, "请填写" + field);
+            if (!present(input, field)) throw new BusinessException(400, "请填写" + fieldLabel(field));
         }
+    }
+
+    private static String fieldLabel(String field) {
+        return switch (field) {
+            case "customerId" -> "客户档案";
+            case "rateId" -> "线路运价";
+            case "boxType" -> "箱型";
+            case "projectCode" -> "铁路项目号";
+            case "fromPoint" -> "装货点";
+            case "toStation" -> "到站";
+            case "pricePerWagon" -> "车皮报价";
+            case "loadDate" -> "装车日期";
+            case "tons" -> "吨数";
+            case "demandId" -> "需求计划";
+            case "consigneeName" -> "收货人";
+            case "wagonNo" -> "车皮号";
+            default -> field;
+        };
     }
 
     private int references(String entity, String id) {
         return switch (entity) {
             case "rates" -> scalar("select count(*) from rail_quotes where rate_id = ?", id);
-            case "quotes" -> scalar("select count(*) from rail_settlements where quote_id = ?", id);
+            case "quotes" -> scalar("select count(*) from rail_settlements where quote_id = ?", id)
+                    + scalar("select count(*) from rail_demands where quote_id = ?", id);
             case "demands" -> scalar("select count(*) from rail_dispatches where demand_id = ?", id)
-                    + scalar("select count(*) from rail_shipments where demand_id = ?", id);
+                    + scalar("select count(*) from rail_shipments where demand_id = ?", id)
+                    + scalar("select count(*) from rail_deliveries where demand_id = ?", id);
             case "dispatches" -> 0;
             case "shipments" -> 0;
             case "settlements" -> 0;
+            case "projectCodes" -> scalar(
+                    "select count(*) from rail_rates where project_code = (select project_code from rail_project_codes where id = ?)", id)
+                    + scalar(
+                    "select count(*) from rail_demands where project_code = (select project_code from rail_project_codes where id = ?)", id);
             default -> 0;
         };
     }
@@ -391,10 +633,15 @@ public class RailService {
         return switch (entity) {
             case "rates" -> "select * from rail_rates";
             case "quotes" -> """
-                    select q.*, r.code as rate_code, r.from_point, r.to_station, r.price_per_wagon
+                    select q.*, r.code as rate_code, r.from_point, r.to_station, r.price_per_wagon, r.project_code,
+                           c.name as customer_name
                     from rail_quotes q left join rail_rates r on r.id = q.rate_id
+                    left join customers c on c.id = q.customer_id
                     """;
-            case "demands" -> "select * from rail_demands";
+            case "demands" -> """
+                    select d.*, q.code as quote_code, q.quote_price
+                    from rail_demands d left join rail_quotes q on q.id = d.quote_id
+                    """;
             case "dispatches" -> """
                     select d.*, dm.code as demand_code, dm.from_point, dm.to_station,
                            dm.customer_name, dm.load_date, dm.project_code
@@ -409,6 +656,11 @@ public class RailService {
                     select s.*, q.code as quote_code from rail_settlements s
                     left join rail_quotes q on q.id = s.quote_id
                     """;
+            case "deliveries" -> """
+                    select d.*, dm.code as demand_code, dm.customer_name, dm.from_point, dm.to_station
+                    from rail_deliveries d join rail_demands dm on dm.id = d.demand_id
+                    """;
+            case "projectCodes" -> "select * from rail_project_codes";
             default -> throw new BusinessException(404, "火车运输业务模块不存在");
         };
     }
@@ -417,10 +669,12 @@ public class RailService {
         return switch (entity) {
             case "rates" -> " order by from_point, to_station, box_type";
             case "quotes" -> " order by q.created_at desc";
-            case "demands" -> " order by load_date desc, code desc";
+            case "demands" -> " order by d.load_date desc, d.code desc";
             case "dispatches" -> " order by d.created_at desc";
             case "shipments" -> " order by s.created_at desc";
             case "settlements" -> " order by s.created_at desc";
+            case "deliveries" -> " order by d.created_at desc";
+            case "projectCodes" -> " order by box_type, project_code";
             default -> " order by 1";
         };
     }
@@ -428,9 +682,11 @@ public class RailService {
     private String idColumn(String entity) {
         return switch (entity) {
             case "quotes" -> "q.id";
+            case "demands" -> "d.id";
             case "dispatches" -> "d.id";
             case "shipments" -> "s.id";
             case "settlements" -> "s.id";
+            case "deliveries" -> "d.id";
             default -> "id";
         };
     }
@@ -443,6 +699,8 @@ public class RailService {
             case "dispatches" -> "rail_dispatches";
             case "shipments" -> "rail_shipments";
             case "settlements" -> "rail_settlements";
+            case "deliveries" -> "rail_deliveries";
+            case "projectCodes" -> "rail_project_codes";
             default -> throw new BusinessException(404, "火车运输业务模块不存在");
         };
     }
@@ -454,6 +712,7 @@ public class RailService {
             case "demands" -> "RD";
             case "dispatches" -> "RP";
             case "shipments" -> "RS";
+            case "deliveries" -> "RDL";
             default -> "RB";
         };
     }
@@ -555,11 +814,12 @@ public class RailService {
                 "taxRate", "tax_rate", "priceCoeff", "price_coeff", "effectiveFrom", "effective_from",
                 "status", "status", "notes", "notes"));
         result.put("quotes", columns(
-                "customerName", "customer_name", "rateId", "rate_id", "boxType", "box_type",
+                "customerId", "customer_id", "customerName", "customer_name", "rateId", "rate_id", "boxType", "box_type",
                 "tons", "tons", "quotePrice", "quote_price", "costTotal", "cost_total",
                 "taxRate", "tax_rate", "unitPrice", "unit_price", "marginTarget", "margin_target",
                 "grossProfit", "gross_profit", "status", "status", "notes", "notes"));
         result.put("demands", columns(
+                "quoteId", "quote_id", "customerId", "customer_id", "customerName", "customer_name",
                 "loadDate", "load_date", "fromPoint", "from_point", "toStation", "to_station",
                 "customerName", "customer_name", "cargo", "cargo", "category", "category",
                 "consignor", "consignor", "consignee", "consignee", "wagonType", "wagon_type",
@@ -575,6 +835,15 @@ public class RailService {
                 "demandId", "demand_id", "wagonNo", "wagon_no", "departAt", "depart_at",
                 "arriveAt", "arrive_at", "deliveredAt", "delivered_at", "status", "status",
                 "notes", "notes"));
+        result.put("deliveries", columns(
+                "demandId", "demand_id", "wagonNo", "wagon_no", "consigneeName", "consignee_name",
+                "consigneePhone", "consignee_phone", "address", "address", "destination", "destination",
+                "tons", "tons", "pieces", "pieces", "shortHaulCompany", "short_haul_company",
+                "distanceKm", "distance_km", "shortHaulFee", "short_haul_fee",
+                "deliveredAt", "delivered_at", "signedBy", "signed_by", "status", "status", "notes", "notes"));
+        result.put("projectCodes", columns(
+                "boxType", "box_type", "projectCode", "project_code", "priceCoeff", "price_coeff",
+                "status", "status", "effectiveFrom", "effective_from", "notes", "notes"));
         result.put("settlements", columns(
                 "customerName", "customer_name", "quoteId", "quote_id", "quotePrice", "quote_price",
                 "costTotal", "cost_total", "taxRate", "tax_rate", "grossProfit", "gross_profit",
