@@ -123,6 +123,12 @@ public class CustomerActivityRepository {
         return value == null ? 0 : value;
     }
 
+    public int countRoadPickupsByIntention(String id) {
+        var value = jdbc.queryForObject(
+                "select count(*) from road_pickups where intention_id = ?", Integer.class, id);
+        return value == null ? 0 : value;
+    }
+
     public int countPledgesByIntention(String id) {
         return jdbc.queryForObject("select count(*) from pledge_businesses where source_intention_id=?",Integer.class,id);
     }

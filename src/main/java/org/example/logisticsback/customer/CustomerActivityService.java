@@ -56,6 +56,9 @@ public class CustomerActivityService {
         if (repository.countContractsByIntention(id) > 0 || repository.countPledgesByIntention(id)>0) {
             throw new BusinessException(409, "该客户意向已关联合同或监管业务，不能删除");
         }
+        if (repository.countRoadPickupsByIntention(id) > 0) {
+            throw new BusinessException(409, "该客户意向已被公路运输提货单引用，不能删除");
+        }
         repository.deleteIntention(id);
     }
 
@@ -101,10 +104,10 @@ public class CustomerActivityService {
         var business = input.business().trim();
         var detail = normalizedBusinessDetail(input);
         if ("运输服务".equals(business) && detail.isBlank()) {
-            throw new BusinessException(400, "运输服务必须选择水路运输、货车运输或火车运输");
+            throw new BusinessException(400, "运输服务必须选择水路运输、公路运输或火车运输");
         }
         if ("运输服务".equals(business)
-                && !Set.of("水路运输", "货车运输", "火车运输").contains(detail)) {
+                && !Set.of("水路运输", "公路运输", "火车运输").contains(detail)) {
             throw new BusinessException(400, "运输方式不正确");
         }
         if (!"运输服务".equals(business) && !detail.isBlank()) {

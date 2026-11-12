@@ -69,6 +69,11 @@ public class ContractService {
         if (linked != null && linked > 0) {
             throw new BusinessException(409, "该合同已被仓单质押业务引用，不能删除");
         }
+        var roadLinked = jdbc.queryForObject(
+                "select count(*) from road_pickups where contract_id = ?", Integer.class, id);
+        if (roadLinked != null && roadLinked > 0) {
+            throw new BusinessException(409, "该合同已被公路运输提货单引用，不能删除");
+        }
         repository.delete(id);
     }
 
